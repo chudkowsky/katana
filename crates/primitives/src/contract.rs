@@ -4,8 +4,8 @@ use std::str::FromStr;
 use num_bigint::BigUint;
 use starknet::core::utils::normalize_address;
 
-use crate::class::ClassHash;
 use crate::Felt;
+use crate::class::ClassHash;
 
 /// Represents the type for a contract storage key.
 pub type StorageKey = Felt;
@@ -29,6 +29,10 @@ impl ContractAddress {
 
     pub fn new(address: Felt) -> Self {
         ContractAddress(normalize_address(address))
+    }
+
+    pub const unsafe fn from_raw_unchecked(address: Felt) -> Self {
+        ContractAddress(address)
     }
 }
 
@@ -82,13 +86,6 @@ impl From<BigUint> for ContractAddress {
     fn from(biguint: BigUint) -> Self {
         Self::new(Felt::from_bytes_le_slice(&biguint.to_bytes_le()))
     }
-}
-
-#[macro_export]
-macro_rules! address {
-    ($value:expr) => {
-        ContractAddress::new($crate::felt!($value))
-    };
 }
 
 /// Represents a generic contract instance information.

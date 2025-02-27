@@ -6060,6 +6060,7 @@ dependencies = [
  "derive_more 0.99.19",
  "flate2",
  "heapless",
+ "katana-primitives-macros",
  "lazy_static",
  "num-bigint",
  "num-traits",
@@ -6079,6 +6080,15 @@ dependencies = [
  "strum 0.25.0",
  "strum_macros 0.25.3",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "katana-primitives-macros"
+version = "1.2.2"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.98",
 ]
 
 [[package]]

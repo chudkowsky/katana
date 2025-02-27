@@ -1,0 +1,12 @@
+[package]
+edition.workspace = true
+name = "katana-primitives-macros"
+version.workspace = true
+
+[dependencies]
+proc-macro2.workspace = true
+quote.workspace = true
+syn = { workspace = true, features = [ "full" ] }
+
+[lib]
+proc-macro = true

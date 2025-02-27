@@ -16,6 +16,7 @@ members = [
 	"crates/node-bindings",
 	"crates/pool",
 	"crates/primitives",
+	"crates/primitives/macros",
 	"crates/rpc/rpc",
 	"crates/rpc/rpc-api",
 	"crates/rpc/rpc-types",
