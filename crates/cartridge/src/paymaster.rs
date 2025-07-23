@@ -20,30 +20,9 @@ use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::{JsonRpcClient, Provider, ProviderError};
 use starknet::signers::{LocalWallet, Signer, SigningKey};
 
-use crate::rpc::OutsideExecution;
+use crate::rpc::types::OutsideExecution;
+use crate::utils::encode_calls;
 use crate::Client;
-
-/// RPC logger layer.
-#[derive(Clone, Debug)]
-pub struct PaymasterLayer {
-    cartridge_api: Client,
-    rpc: JsonRpcClient<HttpTransport>,
-    paymaster_address: ContractAddress,
-    paymaster_key: SigningKey,
-    chain_id: ChainId,
-}
-
-impl PaymasterLayer {
-    pub fn new(
-        cartridge_api: Client,
-        rpc: JsonRpcClient<HttpTransport>,
-        paymaster_address: ContractAddress,
-        paymaster_key: SigningKey,
-        chain_id: ChainId,
-    ) -> Self {
-        Self { cartridge_api, rpc, paymaster_address, paymaster_key, chain_id }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct Paymaster<S> {
@@ -331,6 +310,28 @@ impl<S> Paymaster<S> {
     }
 }
 
+/// Paymaster layer.
+#[derive(Clone, Debug)]
+pub struct PaymasterLayer {
+    cartridge_api: Client,
+    rpc: JsonRpcClient<HttpTransport>,
+    paymaster_address: ContractAddress,
+    paymaster_key: SigningKey,
+    chain_id: ChainId,
+}
+
+impl PaymasterLayer {
+    pub fn new(
+        cartridge_api: Client,
+        rpc: JsonRpcClient<HttpTransport>,
+        paymaster_address: ContractAddress,
+        paymaster_key: SigningKey,
+        chain_id: ChainId,
+    ) -> Self {
+        Self { cartridge_api, rpc, paymaster_address, paymaster_key, chain_id }
+    }
+}
+
 impl<S> tower::Layer<S> for PaymasterLayer {
     type Service = Paymaster<S>;
 
@@ -423,19 +424,4 @@ pub fn craft_deploy_cartridge_controller_tx(
     } else {
         Ok(None)
     }
-}
-
-/// Encodes the given calls into a vector of Felt values (New encoding, cairo 1),
-/// since controller accounts are Cairo 1 contracts.
-pub fn encode_calls(calls: Vec<Call>) -> Vec<Felt> {
-    let mut execute_calldata: Vec<Felt> = vec![calls.len().into()];
-    for call in calls {
-        execute_calldata.push(call.to);
-        execute_calldata.push(call.selector);
-
-        execute_calldata.push(call.calldata.len().into());
-        execute_calldata.extend_from_slice(&call.calldata);
-    }
-
-    execute_calldata
 }

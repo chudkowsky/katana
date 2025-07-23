@@ -19,6 +19,8 @@ use katana_primitives::{ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
 
 /// A single call to be executed as part of an outside execution.
+///
+/// _(kariy): how do we remove the redundacy with starknet-rs's Call type?
 #[derive(Clone, CairoSerde, Serialize, Deserialize, PartialEq, Debug)]
 pub struct Call {
     /// Contract address to call.
