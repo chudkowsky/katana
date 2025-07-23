@@ -6,6 +6,7 @@ use jsonrpsee::core::middleware;
 use jsonrpsee::core::middleware::{Batch, Notification};
 use jsonrpsee::core::traits::ToRpcParams;
 use jsonrpsee::types::Request;
+use katana_pool::{TransactionPool, TxPool};
 use katana_primitives::block::{BlockIdOrTag, BlockTag};
 use katana_primitives::chain::ChainId;
 use katana_primitives::contract::Nonce;
@@ -31,6 +32,7 @@ pub struct Paymaster<S> {
     rpc: JsonRpcClient<HttpTransport>,
     paymaster_address: ContractAddress,
     paymaster_key: SigningKey,
+    pool: TxPool,
     chain_id: ChainId,
 }
 
@@ -178,7 +180,7 @@ impl<S> Paymaster<S> {
     pub fn intercept_add_outside_execution<'a>(&self, request: &Request<'a>) {
         let params = request.params();
 
-        let (address, outside_execution, signature) = if params.is_object() {
+        let (address, ..) = if params.is_object() {
             #[derive(serde::Deserialize)]
             struct ParamsObject<G0, G1, G2> {
                 address: G0,
@@ -191,8 +193,7 @@ impl<S> Paymaster<S> {
                     Ok(p) => p,
                     Err(e) => {
                         jsonrpsee::core::__reexports::log_fail_parse_as_object(&e);
-                        todo!()
-                        // return jsonrpsee::ResponsePayload::error(e);
+                        return;
                     }
                 };
             (parsed.address, parsed.outside_execution, parsed.signature)
@@ -207,8 +208,7 @@ impl<S> Paymaster<S> {
                         &e,
                         false,
                     );
-                    todo!()
-                    // return jsonrpsee::ResponsePayload::error(e);
+                    return;
                 }
             };
             let outside_execution: OutsideExecution = match seq.next() {
@@ -220,8 +220,7 @@ impl<S> Paymaster<S> {
                         &e,
                         false,
                     );
-                    todo!()
-                    // return jsonrpsee::ResponsePayload::error(e);
+                    return;
                 }
             };
             let signature: Vec<Felt> = match seq.next() {
@@ -233,8 +232,7 @@ impl<S> Paymaster<S> {
                         &e,
                         false,
                     );
-                    todo!()
-                    // return jsonrpsee::ResponsePayload::error(e);
+                    return;
                 }
             };
             (address, outside_execution, signature)
@@ -270,7 +268,9 @@ impl<S> Paymaster<S> {
             )
             .unwrap()
         {
-            todo!("add to pool")
+            self.pool
+                .add_transaction(deploy_controller_tx)
+                .expect("failed to add transaction to pool");
         }
     }
 
@@ -280,7 +280,7 @@ impl<S> Paymaster<S> {
     /// The controller accounts are created with a specific version of the controller.
     /// To ensure address determinism, the controller account must be deployed with the same
     /// version, which is included in the calldata retrieved from the Cartridge API.
-    pub fn get_controller_deploy_tx_if_controller_address(
+    fn get_controller_deploy_tx_if_controller_address(
         &self,
         address: Felt,
         paymaster_address: ContractAddress,
@@ -294,8 +294,7 @@ impl<S> Paymaster<S> {
             return Ok(None);
         }
 
-        if let tx @ Some(..) = craft_deploy_cartridge_controller_tx(
-            &self.cartridge_api,
+        if let tx @ Some(..) = self.craft_deploy_cartridge_controller_tx(
             address.into(),
             paymaster_address,
             paymaster_private_key,
@@ -308,6 +307,54 @@ impl<S> Paymaster<S> {
 
         Ok(None)
     }
+
+    /// Crafts a deploy controller transaction for a cartridge controller.
+    ///
+    /// Returns None if the provided `controller_address` is not registered in the Cartridge API.
+    fn craft_deploy_cartridge_controller_tx(
+        &self,
+        controller_address: ContractAddress,
+        paymaster_address: ContractAddress,
+        paymaster_private_key: SigningKey,
+        chain_id: ChainId,
+        paymaster_nonce: Felt,
+    ) -> anyhow::Result<Option<ExecutableTxWithHash>> {
+        if let Some(res) =
+            block_on(self.cartridge_api.get_account_calldata(controller_address)).unwrap()
+        {
+            let call = Call {
+                to: DEFAULT_UDC_ADDRESS.into(),
+                selector: selector!("deployContract"),
+                calldata: res.constructor_calldata,
+            };
+
+            let mut tx = InvokeTxV3 {
+                chain_id,
+                tip: 0_u64,
+                signature: vec![],
+                paymaster_data: vec![],
+                account_deployment_data: vec![],
+                sender_address: paymaster_address,
+                calldata: encode_calls(vec![call]),
+                nonce: paymaster_nonce,
+                nonce_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
+                fee_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
+                resource_bounds: ResourceBoundsMapping::All(AllResourceBoundsMapping::default()),
+            };
+
+            let tx_hash = InvokeTx::V3(tx.clone()).calculate_hash(false);
+
+            let signer = LocalWallet::from(paymaster_private_key);
+            let signature = futures::executor::block_on(signer.sign_hash(&tx_hash)).unwrap();
+            tx.signature = vec![signature.r, signature.s];
+
+            let tx = ExecutableTxWithHash::new(ExecutableTx::Invoke(InvokeTx::V3(tx)));
+
+            Ok(Some(tx))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 /// Paymaster layer.
@@ -318,6 +365,7 @@ pub struct PaymasterLayer {
     paymaster_address: ContractAddress,
     paymaster_key: SigningKey,
     chain_id: ChainId,
+    pool: TxPool,
 }
 
 impl PaymasterLayer {
@@ -327,8 +375,9 @@ impl PaymasterLayer {
         paymaster_address: ContractAddress,
         paymaster_key: SigningKey,
         chain_id: ChainId,
+        pool: TxPool,
     ) -> Self {
-        Self { cartridge_api, rpc, paymaster_address, paymaster_key, chain_id }
+        Self { cartridge_api, rpc, paymaster_address, paymaster_key, chain_id, pool }
     }
 }
 
@@ -336,7 +385,15 @@ impl<S> tower::Layer<S> for PaymasterLayer {
     type Service = Paymaster<S>;
 
     fn layer(&self, service: S) -> Self::Service {
-        todo!()
+        Paymaster {
+            service,
+            rpc: self.rpc.clone(),
+            pool: self.pool.clone(),
+            chain_id: self.chain_id,
+            cartridge_api: self.cartridge_api.clone(),
+            paymaster_address: self.paymaster_address,
+            paymaster_key: self.paymaster_key.clone(),
+        }
     }
 }
 
@@ -375,53 +432,5 @@ where
         n: Notification<'a>,
     ) -> impl Future<Output = Self::NotificationResponse> + Send + 'a {
         self.service.notification(n)
-    }
-}
-
-/// Crafts a deploy controller transaction for a cartridge controller.
-///
-/// Returns None if the provided `controller_address` is not registered in the Cartridge API.
-pub fn craft_deploy_cartridge_controller_tx(
-    cartridge_api_client: &Client,
-    controller_address: ContractAddress,
-    paymaster_address: ContractAddress,
-    paymaster_private_key: SigningKey,
-    chain_id: ChainId,
-    paymaster_nonce: Felt,
-) -> anyhow::Result<Option<ExecutableTxWithHash>> {
-    if let Some(res) =
-        block_on(cartridge_api_client.get_account_calldata(controller_address)).unwrap()
-    {
-        let call = Call {
-            to: DEFAULT_UDC_ADDRESS.into(),
-            selector: selector!("deployContract"),
-            calldata: res.constructor_calldata,
-        };
-
-        let mut tx = InvokeTxV3 {
-            chain_id,
-            tip: 0_u64,
-            signature: vec![],
-            paymaster_data: vec![],
-            account_deployment_data: vec![],
-            sender_address: paymaster_address,
-            calldata: encode_calls(vec![call]),
-            nonce: paymaster_nonce,
-            nonce_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
-            fee_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
-            resource_bounds: ResourceBoundsMapping::All(AllResourceBoundsMapping::default()),
-        };
-
-        let tx_hash = InvokeTx::V3(tx.clone()).calculate_hash(false);
-
-        let signer = LocalWallet::from(paymaster_private_key);
-        let signature = futures::executor::block_on(signer.sign_hash(&tx_hash)).unwrap();
-        tx.signature = vec![signature.r, signature.s];
-
-        let tx = ExecutableTxWithHash::new(ExecutableTx::Invoke(InvokeTx::V3(tx)));
-
-        Ok(Some(tx))
-    } else {
-        Ok(None)
     }
 }

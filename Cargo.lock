@@ -6838,7 +6838,6 @@ version = "1.6.3"
 dependencies = [
  "alloy-primitives",
  "anyhow",
- "cainome 0.8.0",
  "cairo-lang-starknet-classes",
  "cairo-lang-utils",
  "derive_more 0.99.19",
