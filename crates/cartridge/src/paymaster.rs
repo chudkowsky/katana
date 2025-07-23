@@ -6,7 +6,7 @@ use jsonrpsee::core::middleware;
 use jsonrpsee::core::middleware::{Batch, Notification};
 use jsonrpsee::core::traits::ToRpcParams;
 use jsonrpsee::types::Request;
-use katana_primitives::block::BlockIdOrTag;
+use katana_primitives::block::{BlockIdOrTag, BlockTag};
 use katana_primitives::chain::ChainId;
 use katana_primitives::contract::Nonce;
 use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping};
@@ -20,6 +20,7 @@ use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::{JsonRpcClient, Provider, ProviderError};
 use starknet::signers::{LocalWallet, Signer, SigningKey};
 
+use crate::rpc::OutsideExecution;
 use crate::Client;
 
 /// RPC logger layer.
@@ -60,16 +61,12 @@ impl<S> Paymaster<S> {
 
         let (mut requests, simulation_flags, block_id) = if params.is_object() {
             #[derive(serde::Deserialize)]
-            #[serde(crate = "jsonrpsee :: core :: __reexports :: serde")]
+            // #[serde(crate = "jsonrpsee :: core :: __reexports :: serde")]
             struct ParamsObject<G0, G1, G2> {
-                #[serde(alias = "request", alias = "request")]
-                #[serde(rename = "request")]
                 request: G0,
-                #[serde(alias = "simulation_flags", alias = "simulationFlags")]
-                #[serde(rename = "simulation_flags")]
+                #[serde(alias = "simulationFlags")]
                 simulation_flags: G1,
-                #[serde(alias = "block_id", alias = "blockId")]
-                #[serde(rename = "block_id")]
+                #[serde(alias = "blockId")]
                 block_id: G2,
             }
 
@@ -132,31 +129,25 @@ impl<S> Paymaster<S> {
 
         let mut new_requests = Vec::with_capacity(requests.len());
 
-        // Check if any of the transactions are sent from an address associated with a Cartridge
-        // Controller account. If yes, we craft a Controller deployment transaction
-        // for each of the unique sender and push it at the beginning of the
-        // transaction list so that all the requested transactions are executed against a state
-        // with the Controller accounts deployed.
-
-        let paymaster_nonce = match block_on(self.rpc.get_nonce(block_id, *self.paymaster_address))
-        {
-            Ok(nonce) => nonce,
-            Err(err) => match err {
-                // this should be unreachable bcs we already checked for the paymaster account
-                // existence earlier
-                ProviderError::StarknetError(StarknetError::ContractNotFound) => {
-                    // let error = anyhow!("Cartridge paymaster account doesn't exist");
-                    // return Err(ErrorObjectOwned::from(StarknetApiError::from(error)))?;
-                    panic!("Cartridge paymaster account doesn't exist");
-                }
-                _ => {
-                    // return Err(ErrorObjectOwned::from(err))
-                    panic!("something")
-                }
-            },
-        };
-
         for request in &mut requests {
+            // Check if any of the transactions are sent from an address associated with a Cartridge
+            // Controller account. If yes, we craft a Controller deployment transaction
+            // for each of the unique sender and push it at the beginning of the
+            // transaction list so that all the requested transactions are executed against a state
+            // with the Controller accounts deployed.
+            let paymaster_nonce =
+                match block_on(self.rpc.get_nonce(block_id, *self.paymaster_address)) {
+                    Ok(nonce) => nonce,
+                    Err(err) => match err {
+                        ProviderError::StarknetError(StarknetError::ContractNotFound) => {
+                            panic!("Cartridge paymaster account doesn't exist");
+                        }
+                        _ => {
+                            panic!("something")
+                        }
+                    },
+                };
+
             // The whole Cartridge paymaster flow would only be accessible mainly from the
             // Controller wallet. The Controller wallet only supports V3 transactions
             // (considering < V3 transactions will soon be deprecated) hence why we're
@@ -203,6 +194,105 @@ impl<S> Paymaster<S> {
         new_request.params = params;
 
         new_request
+    }
+
+    pub fn intercept_add_outside_execution<'a>(&self, request: &Request<'a>) {
+        let params = request.params();
+
+        let (address, outside_execution, signature) = if params.is_object() {
+            #[derive(serde::Deserialize)]
+            struct ParamsObject<G0, G1, G2> {
+                address: G0,
+                #[serde(alias = "outsideExecution")]
+                outside_execution: G1,
+                signature: G2,
+            }
+            let parsed: ParamsObject<ContractAddress, OutsideExecution, Vec<Felt>> =
+                match params.parse() {
+                    Ok(p) => p,
+                    Err(e) => {
+                        jsonrpsee::core::__reexports::log_fail_parse_as_object(&e);
+                        todo!()
+                        // return jsonrpsee::ResponsePayload::error(e);
+                    }
+                };
+            (parsed.address, parsed.outside_execution, parsed.signature)
+        } else {
+            let mut seq = params.sequence();
+            let address: ContractAddress = match seq.next() {
+                Ok(v) => v,
+                Err(e) => {
+                    jsonrpsee::core::__reexports::log_fail_parse(
+                        "address",
+                        "ContractAddress",
+                        &e,
+                        false,
+                    );
+                    todo!()
+                    // return jsonrpsee::ResponsePayload::error(e);
+                }
+            };
+            let outside_execution: OutsideExecution = match seq.next() {
+                Ok(v) => v,
+                Err(e) => {
+                    jsonrpsee::core::__reexports::log_fail_parse(
+                        "outside_execution",
+                        "OutsideExecution",
+                        &e,
+                        false,
+                    );
+                    todo!()
+                    // return jsonrpsee::ResponsePayload::error(e);
+                }
+            };
+            let signature: Vec<Felt> = match seq.next() {
+                Ok(v) => v,
+                Err(e) => {
+                    jsonrpsee::core::__reexports::log_fail_parse(
+                        "signature",
+                        "Vec < Felt >",
+                        &e,
+                        false,
+                    );
+                    todo!()
+                    // return jsonrpsee::ResponsePayload::error(e);
+                }
+            };
+            (address, outside_execution, signature)
+        };
+
+        // Check if any of the transactions are sent from an address associated with a Cartridge
+        // Controller account. If yes, we craft a Controller deployment transaction
+        // for each of the unique sender and push it at the beginning of the
+        // transaction list so that all the requested transactions are executed against a state
+        // with the Controller accounts deployed.
+        let paymaster_nonce = match block_on(
+            self.rpc.get_nonce(BlockIdOrTag::Tag(BlockTag::Pending), *self.paymaster_address),
+        ) {
+            Ok(nonce) => nonce,
+            Err(err) => match err {
+                ProviderError::StarknetError(StarknetError::ContractNotFound) => {
+                    panic!("Cartridge paymaster account doesn't exist");
+                }
+                _ => {
+                    panic!("something")
+                }
+            },
+        };
+
+        if let Some(deploy_controller_tx) = self
+            .get_controller_deploy_tx_if_controller_address(
+                *address,
+                self.paymaster_address,
+                self.paymaster_key.clone(),
+                paymaster_nonce,
+                self.chain_id,
+                BlockIdOrTag::Tag(BlockTag::Pending),
+            )
+            .unwrap()
+        {
+            todo!("add to pool")
+        }
     }
 
     /// Handles the deployment of a cartridge controller if the estimate fee is requested for a
@@ -261,13 +351,15 @@ where
         &self,
         request: Request<'a>,
     ) -> impl Future<Output = Self::MethodResponse> + Send + 'a {
-        let request = if request.method_name() == "starknet_estimateFee" {
-            self.intercept_estimate_fee(&request)
+        if request.method_name() == "starknet_estimateFee" {
+            let request = self.intercept_estimate_fee(&request);
+            self.service.call(request)
+        } else if request.method_name() == "cartridge_addExecuteOutsideTransaction" {
+            self.intercept_add_outside_execution(&request);
+            self.service.call(request)
         } else {
-            request
-        };
-
-        self.service.call(request)
+            self.service.call(request)
+        }
     }
 
     fn batch<'a>(

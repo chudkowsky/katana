@@ -15,9 +15,6 @@ use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
 use tracing::info;
 
-#[cfg(feature = "cartridge")]
-pub mod cartridge;
-
 pub mod cors;
 pub mod dev;
 pub mod health;

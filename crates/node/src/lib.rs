@@ -10,6 +10,8 @@ use std::future::IntoFuture;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+#[cfg(feature = "cartridge")]
+use cartridge::rpc::{CartridgeApi, CartridgeApiServer};
 use config::rpc::RpcModuleKind;
 use config::Config;
 use http::header::CONTENT_TYPE;
@@ -31,17 +33,11 @@ use katana_metrics::{Report, Server as MetricsServer};
 use katana_pool::ordering::FiFo;
 use katana_pool::TxPool;
 use katana_primitives::env::{CfgEnv, FeeTokenAddressses};
-#[cfg(feature = "cartridge")]
-use katana_rpc::cartridge::CartridgeApi;
 use katana_rpc::cors::Cors;
 use katana_rpc::dev::DevApi;
 use katana_rpc::starknet::forking::ForkedClient;
-#[cfg(feature = "cartridge")]
-use katana_rpc::starknet::PaymasterConfig;
 use katana_rpc::starknet::{StarknetApi, StarknetApiConfig};
 use katana_rpc::{RpcServer, RpcServerHandle};
-#[cfg(feature = "cartridge")]
-use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::dev::DevApiServer;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
 use katana_stage::Sequencing;
@@ -216,7 +212,9 @@ impl Node {
         .allow_headers([CONTENT_TYPE, "argent-client".parse().unwrap(), "argent-version".parse().unwrap()]);
 
         #[cfg(feature = "cartridge")]
-        let paymaster = if let Some(paymaster) = &config.paymaster {
+        if let Some(paymaster) = &config.paymaster {
+            todo!("create paymaster here");
+
             anyhow::ensure!(
                 config.rpc.apis.contains(&RpcModuleKind::Cartridge),
                 "Cartridge API should be enabled when paymaster is set"
@@ -230,10 +228,6 @@ impl Node {
             );
 
             rpc_modules.merge(CartridgeApiServer::into_rpc(api))?;
-
-            Some(PaymasterConfig { cartridge_api_url: paymaster.cartridge_api_url.clone() })
-        } else {
-            None
         };
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
@@ -244,8 +238,6 @@ impl Node {
                 max_concurrent_estimate_fee_requests: config
                     .rpc
                     .max_concurrent_estimate_fee_requests,
-                #[cfg(feature = "cartridge")]
-                paymaster,
             };
 
             let api = if let Some(client) = forked_client {
