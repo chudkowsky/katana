@@ -5,9 +5,6 @@ use katana_rpc_types::transaction::InvokeTxResult;
 
 use crate::rpc::types::OutsideExecution;
 
-#[derive(Debug, thiserror::Error)]
-pub enum CartridgeApiError {}
-
 /// Cartridge API to support paymaster in local Katana development.
 /// This API is not aimed to be used in slot.
 #[rpc(server, namespace = "cartridge")]

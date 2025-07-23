@@ -11,6 +11,8 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 #[cfg(feature = "cartridge")]
+use cartridge::paymaster::{Paymaster, PaymasterLayer};
+#[cfg(feature = "cartridge")]
 use cartridge::rpc::{CartridgeApi, CartridgeApiServer};
 use config::rpc::RpcModuleKind;
 use config::Config;
@@ -213,6 +215,14 @@ impl Node {
 
         #[cfg(feature = "cartridge")]
         if let Some(paymaster) = &config.paymaster {
+            // let paymaster = PaymasterLayer::new(
+            //     cartridge_api,
+            //     rpc,
+            //     paymaster_address,
+            //     paymaster_key,
+            //     chain_id,
+            //     pool,
+            // );
             todo!("create paymaster here");
 
             anyhow::ensure!(

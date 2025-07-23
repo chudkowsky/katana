@@ -9,7 +9,6 @@ use jsonrpsee::types::Request;
 use katana_pool::{TransactionPool, TxPool};
 use katana_primitives::block::{BlockIdOrTag, BlockTag};
 use katana_primitives::chain::ChainId;
-use katana_primitives::contract::Nonce;
 use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping};
 use katana_primitives::genesis::constant::DEFAULT_UDC_ADDRESS;
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV3};
@@ -111,24 +110,6 @@ impl<S> Paymaster<S> {
         let mut new_requests = Vec::with_capacity(requests.len());
 
         for request in &mut requests {
-            // Check if any of the transactions are sent from an address associated with a Cartridge
-            // Controller account. If yes, we craft a Controller deployment transaction
-            // for each of the unique sender and push it at the beginning of the
-            // transaction list so that all the requested transactions are executed against a state
-            // with the Controller accounts deployed.
-            let paymaster_nonce =
-                match block_on(self.rpc.get_nonce(block_id, *self.paymaster_address)) {
-                    Ok(nonce) => nonce,
-                    Err(err) => match err {
-                        ProviderError::StarknetError(StarknetError::ContractNotFound) => {
-                            panic!("Cartridge paymaster account doesn't exist");
-                        }
-                        _ => {
-                            panic!("something")
-                        }
-                    },
-                };
-
             // The whole Cartridge paymaster flow would only be accessible mainly from the
             // Controller wallet. The Controller wallet only supports V3 transactions
             // (considering < V3 transactions will soon be deprecated) hence why we're
@@ -137,14 +118,7 @@ impl<S> Paymaster<S> {
             // Yes, ideally it's better to handle all versions but it's probably fine for now.
             if let BroadcastedTx::Invoke(BroadcastedInvokeTx(tx)) = &request {
                 let deploy_controller_tx = self
-                    .get_controller_deploy_tx_if_controller_address(
-                        tx.sender_address,
-                        self.paymaster_address,
-                        self.paymaster_key.clone(),
-                        paymaster_nonce,
-                        self.chain_id,
-                        block_id,
-                    )
+                    .get_controller_deploy_tx_if_controller_address(tx.sender_address, block_id)
                     .unwrap();
 
                 if let Some(tx) = deploy_controller_tx {
@@ -238,32 +212,9 @@ impl<S> Paymaster<S> {
             (address, outside_execution, signature)
         };
 
-        // Check if any of the transactions are sent from an address associated with a Cartridge
-        // Controller account. If yes, we craft a Controller deployment transaction
-        // for each of the unique sender and push it at the beginning of the
-        // transaction list so that all the requested transactions are executed against a state
-        // with the Controller accounts deployed.
-        let paymaster_nonce = match block_on(
-            self.rpc.get_nonce(BlockIdOrTag::Tag(BlockTag::Pending), *self.paymaster_address),
-        ) {
-            Ok(nonce) => nonce,
-            Err(err) => match err {
-                ProviderError::StarknetError(StarknetError::ContractNotFound) => {
-                    panic!("Cartridge paymaster account doesn't exist");
-                }
-                _ => {
-                    panic!("something")
-                }
-            },
-        };
-
         if let Some(deploy_controller_tx) = self
             .get_controller_deploy_tx_if_controller_address(
                 *address,
-                self.paymaster_address,
-                self.paymaster_key.clone(),
-                paymaster_nonce,
-                self.chain_id,
                 BlockIdOrTag::Tag(BlockTag::Pending),
             )
             .unwrap()
@@ -283,10 +234,6 @@ impl<S> Paymaster<S> {
     fn get_controller_deploy_tx_if_controller_address(
         &self,
         address: Felt,
-        paymaster_address: ContractAddress,
-        paymaster_private_key: SigningKey,
-        paymaster_nonce: Nonce,
-        chain_id: ChainId,
         block_id: BlockIdOrTag,
     ) -> anyhow::Result<Option<ExecutableTxWithHash>> {
         // Avoid deploying the controller account if it is already deployed.
@@ -294,13 +241,7 @@ impl<S> Paymaster<S> {
             return Ok(None);
         }
 
-        if let tx @ Some(..) = self.craft_deploy_cartridge_controller_tx(
-            address.into(),
-            paymaster_address,
-            paymaster_private_key,
-            chain_id,
-            paymaster_nonce,
-        )? {
+        if let tx @ Some(..) = self.get_controller_deploy_tx(address.into(), block_id)? {
             // debug!(address = %maybe_controller_address, "Deploying controller account.");
             return Ok(tx);
         }
@@ -311,17 +252,30 @@ impl<S> Paymaster<S> {
     /// Crafts a deploy controller transaction for a cartridge controller.
     ///
     /// Returns None if the provided `controller_address` is not registered in the Cartridge API.
-    fn craft_deploy_cartridge_controller_tx(
+    fn get_controller_deploy_tx(
         &self,
-        controller_address: ContractAddress,
-        paymaster_address: ContractAddress,
-        paymaster_private_key: SigningKey,
-        chain_id: ChainId,
-        paymaster_nonce: Felt,
+        address: ContractAddress,
+        block_id: BlockIdOrTag,
     ) -> anyhow::Result<Option<ExecutableTxWithHash>> {
-        if let Some(res) =
-            block_on(self.cartridge_api.get_account_calldata(controller_address)).unwrap()
-        {
+        if let Some(res) = block_on(self.cartridge_api.get_account_calldata(address)).unwrap() {
+            // Check if any of the transactions are sent from an address associated with a Cartridge
+            // Controller account. If yes, we craft a Controller deployment transaction
+            // for each of the unique sender and push it at the beginning of the
+            // transaction list so that all the requested transactions are executed against a state
+            // with the Controller accounts deployed.
+            let paymaster_nonce =
+                match block_on(self.rpc.get_nonce(block_id, *self.paymaster_address)) {
+                    Ok(nonce) => nonce,
+                    Err(err) => match err {
+                        ProviderError::StarknetError(StarknetError::ContractNotFound) => {
+                            panic!("Cartridge paymaster account doesn't exist");
+                        }
+                        _ => {
+                            panic!("something")
+                        }
+                    },
+                };
+
             let call = Call {
                 to: DEFAULT_UDC_ADDRESS.into(),
                 selector: selector!("deployContract"),
@@ -329,14 +283,14 @@ impl<S> Paymaster<S> {
             };
 
             let mut tx = InvokeTxV3 {
-                chain_id,
                 tip: 0_u64,
                 signature: vec![],
-                paymaster_data: vec![],
-                account_deployment_data: vec![],
-                sender_address: paymaster_address,
-                calldata: encode_calls(vec![call]),
                 nonce: paymaster_nonce,
+                paymaster_data: vec![],
+                chain_id: self.chain_id,
+                account_deployment_data: vec![],
+                calldata: encode_calls(vec![call]),
+                sender_address: self.paymaster_address,
                 nonce_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
                 fee_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
                 resource_bounds: ResourceBoundsMapping::All(AllResourceBoundsMapping::default()),
@@ -344,7 +298,7 @@ impl<S> Paymaster<S> {
 
             let tx_hash = InvokeTx::V3(tx.clone()).calculate_hash(false);
 
-            let signer = LocalWallet::from(paymaster_private_key);
+            let signer = LocalWallet::from(self.paymaster_key.clone());
             let signature = futures::executor::block_on(signer.sign_hash(&tx_hash)).unwrap();
             tx.signature = vec![signature.r, signature.s];
 
