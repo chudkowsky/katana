@@ -74,21 +74,6 @@ pub struct CartridgeApi<EF: ExecutorFactory> {
     api_client: CartridgeClient,
 }
 
-impl<EF> Clone for CartridgeApi<EF>
-where
-    EF: ExecutorFactory,
-{
-    fn clone(&self) -> Self {
-        Self {
-            backend: self.backend.clone(),
-            block_producer: self.block_producer.clone(),
-            pool: self.pool.clone(),
-            api_client: self.api_client.clone(),
-            vrf_ctx: self.vrf_ctx.clone(),
-        }
-    }
-}
-
 impl<EF: ExecutorFactory> CartridgeApi<EF> {
     pub fn new(
         backend: Arc<Backend<EF>>,
@@ -230,6 +215,18 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
     {
         let this = self.clone();
         TokioTaskSpawner::new().unwrap().spawn_blocking(move || func(this)).await.unwrap()
+    }
+}
+
+impl<EF: ExecutorFactory> Clone for CartridgeApi<EF> {
+    fn clone(&self) -> Self {
+        Self {
+            pool: self.pool.clone(),
+            backend: self.backend.clone(),
+            vrf_ctx: self.vrf_ctx.clone(),
+            api_client: self.api_client.clone(),
+            block_producer: self.block_producer.clone(),
+        }
     }
 }
 
