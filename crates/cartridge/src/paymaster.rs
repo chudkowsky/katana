@@ -42,7 +42,6 @@ impl<S, EF: ExecutorFactory> Paymaster<S, EF> {
 
         let (mut requests, simulation_flags, block_id) = if params.is_object() {
             #[derive(serde::Deserialize)]
-            // #[serde(crate = "jsonrpsee :: core :: __reexports :: serde")]
             struct ParamsObject<G0, G1, G2> {
                 request: G0,
                 #[serde(alias = "simulationFlags")]
@@ -117,7 +116,7 @@ impl<S, EF: ExecutorFactory> Paymaster<S, EF> {
             // only checking for V3 transactions here.
             //
             // Yes, ideally it's better to handle all versions but it's probably fine for now.
-            if let BroadcastedTx::Invoke(BroadcastedInvokeTx(tx)) = dbg!(&request) {
+            if let BroadcastedTx::Invoke(BroadcastedInvokeTx(tx)) = &request {
                 let deploy_controller_tx = self
                     .get_controller_deploy_tx_if_controller_address(tx.sender_address, block_id)
                     .unwrap();

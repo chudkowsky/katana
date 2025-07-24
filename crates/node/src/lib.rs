@@ -54,7 +54,8 @@ use tracing::info;
 
 use crate::exit::NodeStoppedFuture;
 
-pub type NodeRpcMiddleware = Stack<
+/// The concrete type of of the RPC middleware stack used by the node.
+type NodeRpcMiddleware = Stack<
     Either<PaymasterLayer<BlockifierFactory>, Identity>,
     Stack<RpcLoggerLayer, Stack<RpcServerMetricsLayer, Identity>>,
 >;
@@ -279,7 +280,7 @@ impl Node {
 
             // build cartridge paymaster
 
-            let api_client = cartridge::Client::new(paymaster.cartridge_api_url.clone());
+            let cartridge_api_client = cartridge::Client::new(paymaster.cartridge_api_url.clone());
 
             // For now, we use the first predeployed account in the genesis as the paymaster
             // account.
@@ -299,7 +300,7 @@ impl Node {
 
             Some(PaymasterLayer::new(
                 starknet_api,
-                api_client,
+                cartridge_api_client,
                 *pm_address,
                 SigningKey::from_secret_scalar(pm_private_key),
                 config.chain.id(),
