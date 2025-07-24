@@ -6,15 +6,14 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use bytes::Bytes;
 use jsonrpsee::core::middleware::RpcServiceT;
-use jsonrpsee::core::{BoxError, RegisterMethodError, TEN_MB_SIZE_BYTES};
+use jsonrpsee::core::{RegisterMethodError, TEN_MB_SIZE_BYTES};
 use jsonrpsee::server::middleware::rpc::RpcService;
-use jsonrpsee::server::{HttpRequest, HttpResponse, Server, ServerConfig, ServerHandle};
+use jsonrpsee::server::{Server, ServerConfig, ServerHandle};
 use jsonrpsee::{MethodResponse, RpcModule};
 use katana_tracing::gcloud::GoogleStackDriverMakeSpan;
 use tower::layer::util::Identity;
-use tower::{Layer, Service, ServiceBuilder};
+use tower::{Layer, ServiceBuilder};
 use tower_http::trace::TraceLayer;
 use tracing::info;
 

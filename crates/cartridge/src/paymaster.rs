@@ -6,6 +6,7 @@ use jsonrpsee::core::middleware;
 use jsonrpsee::core::middleware::{Batch, Notification};
 use jsonrpsee::core::traits::ToRpcParams;
 use jsonrpsee::types::Request;
+use katana_executor::ExecutorFactory;
 use katana_pool::{TransactionPool, TxPool};
 use katana_primitives::block::{BlockIdOrTag, BlockTag};
 use katana_primitives::chain::ChainId;
@@ -13,11 +14,11 @@ use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping};
 use katana_primitives::genesis::constant::DEFAULT_UDC_ADDRESS;
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV3};
 use katana_primitives::{ContractAddress, Felt};
+use katana_rpc::starknet::StarknetApi;
+use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_types::transaction::{BroadcastedInvokeTx, BroadcastedTx};
-use starknet::core::types::{Call, SimulationFlagForEstimateFee, StarknetError};
+use starknet::core::types::{Call, SimulationFlagForEstimateFee};
 use starknet::macros::selector;
-use starknet::providers::jsonrpc::HttpTransport;
-use starknet::providers::{JsonRpcClient, Provider, ProviderError};
 use starknet::signers::{LocalWallet, Signer, SigningKey};
 
 use crate::rpc::types::OutsideExecution;
@@ -25,17 +26,17 @@ use crate::utils::encode_calls;
 use crate::Client;
 
 #[derive(Debug, Clone)]
-pub struct Paymaster<S> {
+pub struct Paymaster<S, EF: ExecutorFactory> {
     service: S,
+    starknet_api: StarknetApi<EF>,
     cartridge_api: Client,
-    rpc: JsonRpcClient<HttpTransport>,
     paymaster_address: ContractAddress,
     paymaster_key: SigningKey,
     pool: TxPool,
     chain_id: ChainId,
 }
 
-impl<S> Paymaster<S> {
+impl<S, EF: ExecutorFactory> Paymaster<S, EF> {
     pub fn intercept_estimate_fee<'a>(&self, request: &Request<'a>) -> Request<'a> {
         let params = request.params();
 
@@ -237,7 +238,7 @@ impl<S> Paymaster<S> {
         block_id: BlockIdOrTag,
     ) -> anyhow::Result<Option<ExecutableTxWithHash>> {
         // Avoid deploying the controller account if it is already deployed.
-        if block_on(self.rpc.get_class_hash_at(block_id, address)).is_ok() {
+        if block_on(self.starknet_api.class_hash_at_address(block_id, address.into())).is_ok() {
             return Ok(None);
         }
 
@@ -264,16 +265,14 @@ impl<S> Paymaster<S> {
             // transaction list so that all the requested transactions are executed against a state
             // with the Controller accounts deployed.
             let paymaster_nonce =
-                match block_on(self.rpc.get_nonce(block_id, *self.paymaster_address)) {
+                match block_on(self.starknet_api.nonce_at(block_id, self.paymaster_address)) {
                     Ok(nonce) => nonce,
-                    Err(err) => match err {
-                        ProviderError::StarknetError(StarknetError::ContractNotFound) => {
-                            panic!("Cartridge paymaster account doesn't exist");
-                        }
-                        _ => {
-                            panic!("something")
-                        }
-                    },
+                    Err(StarknetApiError::ContractNotFound) => {
+                        panic!("Cartridge paymaster account doesn't exist");
+                    }
+                    _ => {
+                        panic!("something")
+                    }
                 };
 
             let call = Call {
@@ -312,38 +311,51 @@ impl<S> Paymaster<S> {
 }
 
 /// Paymaster layer.
-#[derive(Clone, Debug)]
-pub struct PaymasterLayer {
+#[derive(Debug)]
+pub struct PaymasterLayer<EF: ExecutorFactory> {
+    starknet_api: StarknetApi<EF>,
     cartridge_api: Client,
-    rpc: JsonRpcClient<HttpTransport>,
     paymaster_address: ContractAddress,
     paymaster_key: SigningKey,
     chain_id: ChainId,
     pool: TxPool,
 }
 
-impl PaymasterLayer {
+impl<EF: ExecutorFactory> PaymasterLayer<EF> {
     pub fn new(
+        starknet_api: StarknetApi<EF>,
         cartridge_api: Client,
-        rpc: JsonRpcClient<HttpTransport>,
         paymaster_address: ContractAddress,
         paymaster_key: SigningKey,
         chain_id: ChainId,
         pool: TxPool,
     ) -> Self {
-        Self { cartridge_api, rpc, paymaster_address, paymaster_key, chain_id, pool }
+        Self { starknet_api, cartridge_api, paymaster_address, paymaster_key, chain_id, pool }
     }
 }
 
-impl<S> tower::Layer<S> for PaymasterLayer {
-    type Service = Paymaster<S>;
+impl<EF: ExecutorFactory> Clone for PaymasterLayer<EF> {
+    fn clone(&self) -> Self {
+        Self {
+            starknet_api: self.starknet_api.clone(),
+            cartridge_api: self.cartridge_api.clone(),
+            paymaster_address: self.paymaster_address,
+            paymaster_key: self.paymaster_key.clone(),
+            chain_id: self.chain_id,
+            pool: self.pool.clone(),
+        }
+    }
+}
+
+impl<S, EF: ExecutorFactory> tower::Layer<S> for PaymasterLayer<EF> {
+    type Service = Paymaster<S, EF>;
 
     fn layer(&self, service: S) -> Self::Service {
         Paymaster {
             service,
-            rpc: self.rpc.clone(),
             pool: self.pool.clone(),
             chain_id: self.chain_id,
+            starknet_api: self.starknet_api.clone(),
             cartridge_api: self.cartridge_api.clone(),
             paymaster_address: self.paymaster_address,
             paymaster_key: self.paymaster_key.clone(),
@@ -351,9 +363,10 @@ impl<S> tower::Layer<S> for PaymasterLayer {
     }
 }
 
-impl<S> middleware::RpcServiceT for Paymaster<S>
+impl<S, EF> middleware::RpcServiceT for Paymaster<S, EF>
 where
     S: middleware::RpcServiceT + Send + Sync + Clone + 'static,
+    EF: ExecutorFactory,
 {
     type BatchResponse = S::BatchResponse;
     type MethodResponse = S::MethodResponse;

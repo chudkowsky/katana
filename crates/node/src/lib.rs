@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Context, Result};
 #[cfg(feature = "cartridge")]
-use cartridge::paymaster::{Paymaster, PaymasterLayer};
+use cartridge::paymaster::PaymasterLayer;
 #[cfg(feature = "cartridge")]
 use cartridge::rpc::{CartridgeApi, CartridgeApiServer};
 use config::rpc::RpcModuleKind;
@@ -55,7 +55,7 @@ use tracing::info;
 use crate::exit::NodeStoppedFuture;
 
 pub type NodeRpcMiddleware = Stack<
-    Either<PaymasterLayer, Identity>,
+    Either<PaymasterLayer<BlockifierFactory>, Identity>,
     Stack<RpcLoggerLayer, Stack<RpcServerMetricsLayer, Identity>>,
 >;
 
@@ -226,31 +226,34 @@ impl Node {
         .allow_methods([Method::POST, Method::GET])
         .allow_headers([CONTENT_TYPE, "argent-client".parse().unwrap(), "argent-version".parse().unwrap()]);
 
+        let starknet_api_cfg = StarknetApiConfig {
+            max_call_gas: config.rpc.max_call_gas,
+            max_proof_keys: config.rpc.max_proof_keys,
+            max_event_page_size: config.rpc.max_event_page_size,
+            max_concurrent_estimate_fee_requests: config.rpc.max_concurrent_estimate_fee_requests,
+        };
+
+        let starknet_api = if let Some(client) = forked_client {
+            StarknetApi::new_forked(
+                backend.clone(),
+                pool.clone(),
+                block_producer.clone(),
+                client,
+                starknet_api_cfg,
+            )
+        } else {
+            StarknetApi::new(
+                backend.clone(),
+                pool.clone(),
+                Some(block_producer.clone()),
+                starknet_api_cfg,
+            )
+        };
+
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
-            let cfg = StarknetApiConfig {
-                max_event_page_size: config.rpc.max_event_page_size,
-                max_proof_keys: config.rpc.max_proof_keys,
-                max_call_gas: config.rpc.max_call_gas,
-                max_concurrent_estimate_fee_requests: config
-                    .rpc
-                    .max_concurrent_estimate_fee_requests,
-            };
-
-            let api = if let Some(client) = forked_client {
-                StarknetApi::new_forked(
-                    backend.clone(),
-                    pool.clone(),
-                    block_producer.clone(),
-                    client,
-                    cfg,
-                )
-            } else {
-                StarknetApi::new(backend.clone(), pool.clone(), Some(block_producer.clone()), cfg)
-            };
-
-            rpc_modules.merge(StarknetApiServer::into_rpc(api.clone()))?;
-            rpc_modules.merge(StarknetWriteApiServer::into_rpc(api.clone()))?;
-            rpc_modules.merge(StarknetTraceApiServer::into_rpc(api))?;
+            rpc_modules.merge(StarknetApiServer::into_rpc(starknet_api.clone()))?;
+            rpc_modules.merge(StarknetWriteApiServer::into_rpc(starknet_api.clone()))?;
+            rpc_modules.merge(StarknetTraceApiServer::into_rpc(starknet_api.clone()))?;
         }
 
         if config.rpc.apis.contains(&RpcModuleKind::Dev) {
@@ -295,8 +298,8 @@ impl Node {
             };
 
             Some(PaymasterLayer::new(
+                starknet_api,
                 api_client,
-                rpc,
                 *pm_address,
                 SigningKey::from_secret_scalar(pm_private_key),
                 config.chain.id(),
