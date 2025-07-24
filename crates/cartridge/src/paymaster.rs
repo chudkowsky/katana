@@ -117,7 +117,7 @@ impl<S, EF: ExecutorFactory> Paymaster<S, EF> {
             // only checking for V3 transactions here.
             //
             // Yes, ideally it's better to handle all versions but it's probably fine for now.
-            if let BroadcastedTx::Invoke(BroadcastedInvokeTx(tx)) = &request {
+            if let BroadcastedTx::Invoke(BroadcastedInvokeTx(tx)) = dbg!(&request) {
                 let deploy_controller_tx = self
                     .get_controller_deploy_tx_if_controller_address(tx.sender_address, block_id)
                     .unwrap();
@@ -376,10 +376,10 @@ where
         &self,
         request: Request<'a>,
     ) -> impl Future<Output = Self::MethodResponse> + Send + 'a {
-        if request.method_name() == "starknet_estimateFee" {
+        if dbg!(request.method_name() == "starknet_estimateFee") {
             let request = self.intercept_estimate_fee(&request);
             self.service.call(request)
-        } else if request.method_name() == "cartridge_addExecuteOutsideTransaction" {
+        } else if dbg!(request.method_name() == "cartridge_addExecuteOutsideTransaction") {
             self.intercept_add_outside_execution(&request);
             self.service.call(request)
         } else {
