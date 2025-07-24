@@ -152,7 +152,7 @@ impl<S, EF: ExecutorFactory> Paymaster<S, EF> {
         new_request
     }
 
-    pub fn intercept_add_outside_execution<'a>(&self, request: &Request<'a>) {
+    pub fn intercept_add_outside_execution(&self, request: &Request<'_>) {
         let params = request.params();
 
         let (address, ..) = if params.is_object() {
