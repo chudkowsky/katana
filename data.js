@@ -1,6 +1,6 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752781278429,
-  "repoUrl": "https://github.com/dojoengine/katana",
+  "lastUpdate": 1755083212901,
+  "repoUrl": "https://github.com/chudkowsky/katana",
   "entries": {
     "Benchmark": [
       {
@@ -3155,6 +3155,72 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 128359807,
             "range": "± 379591",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dev@glihm.net",
+            "name": "glihm",
+            "username": "glihm"
+          },
+          "committer": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "distinct": true,
+          "id": "e7d2a61a536a9423080f0868d25bd1dc59ee34af",
+          "message": "release(prepare): v1.7.0-alpha.1 (#221)\n\nCo-authored-by: kariy <26515232+kariy@users.noreply.github.com>",
+          "timestamp": "2025-08-13T05:13:50-04:00",
+          "tree_id": "4749e6ea7808b9e97fb6540210dc32777f7c402e",
+          "url": "https://github.com/chudkowsky/katana/commit/e7d2a61a536a9423080f0868d25bd1dc59ee34af"
+        },
+        "date": 1755083211665,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 475013,
+            "range": "± 10294",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 94996387,
+            "range": "± 1460281",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65793678,
+            "range": "± 2216631",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2699877,
+            "range": "± 11213",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 3061542,
+            "range": "± 18508",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 17203066,
+            "range": "± 573710",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 130257175,
+            "range": "± 1411906",
             "unit": "ns/iter"
           }
         ]
