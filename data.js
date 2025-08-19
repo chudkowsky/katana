@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755083212901,
+  "lastUpdate": 1755592187702,
   "repoUrl": "https://github.com/chudkowsky/katana",
   "entries": {
     "Benchmark": [
@@ -3221,6 +3221,66 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 130257175,
             "range": "± 1411906",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e726a9fcb66024ccde8811f44923e35aaf981c0a",
+          "message": "test(reverse-proxy): run Katana and Caddy as separate processes (#233)",
+          "timestamp": "2025-08-19T09:19:35+08:00",
+          "tree_id": "06c13c77f5cdfcc86fd520e7d7088e81f2539499",
+          "url": "https://github.com/chudkowsky/katana/commit/e726a9fcb66024ccde8811f44923e35aaf981c0a"
+        },
+        "date": 1755592185600,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 422929,
+            "range": "± 9167",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 94794310,
+            "range": "± 2481398",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65749324,
+            "range": "± 2700439",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2710839,
+            "range": "± 17516",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 3051564,
+            "range": "± 63683",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 18024778,
+            "range": "± 345675",
             "unit": "ns/iter"
           }
         ]
